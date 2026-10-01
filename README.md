@@ -8,6 +8,10 @@ I used C4D for years before moving to Blender, and the thing I kept missing wasn
 
 This is an unofficial fork. It isn't made or endorsed by the Blender Foundation or Maxon. Blender is a trademark of the Blender Foundation, Cinema 4D is a trademark of Maxon.
 
+## Download
+
+Windows 64-bit build: grab the zip from [Releases](https://github.com/Anaadh/blender4d/releases), unzip, run `blender.exe`. No installer, and it keeps its settings in its own folder so it won't touch a normal Blender install. Cycles GPU rendering isn't in the prebuilt zip yet (CPU and EEVEE are fine), build it yourself if you need that.
+
 ## Fork or add-on?
 
 Most of this is a Python add-on called [C4D Feel](https://github.com/Anaadh/c4d-feel). It runs on normal Blender 5.2 and you don't need this fork to use it.
