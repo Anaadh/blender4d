@@ -113,3 +113,4 @@ scripts/modules/_bpy_internal/assets/remote_library/*_openapi.py linguist-genera
 
 # Blender4D: the C4D Feel icons are tiny, keep them as plain files (no LFS)
 scripts/addons_core/c4d_feel/icons/*.png -filter -diff -merge -text
+doc/blender4d/*.jpg -filter -diff -merge -text
