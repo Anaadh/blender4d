@@ -154,6 +154,8 @@ enum eSpaceOutliner_Flag : short {
   SO_SYNC_SELECT = (1 << 5),
   SO_MODE_COLUMN = (1 << 6),
   SO_SCROLL_TO_ACTIVE = (1 << 7),
+  /** C4D Feel: Cinema 4D style Object Manager columns (dots, generator check, tags). */
+  SO_C4D_STYLE = (1 << 8),
 };
 ENUM_OPERATORS(eSpaceOutliner_Flag)
 

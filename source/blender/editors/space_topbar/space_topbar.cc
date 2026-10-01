@@ -97,6 +97,21 @@ static void topbar_main_region_init(wmWindowManager *wm, ARegion *region)
   WM_event_add_keymap_handler(&region->runtime->handlers, keymap);
 }
 
+namespace ui {
+/* C4D Feel: defined in interface.cc; declared here (not in UI_interface_c.hh)
+ * to keep rebuilds small. */
+void region_icon_buttons_scale(ARegion *region, float scale);
+}  // namespace ui
+
+/* C4D Feel: the main region is the second top-bar row (C4D command palette,
+ * drawn by Python headers registered for TOPBAR / WINDOW). Icon-only buttons
+ * there get large icons. */
+static void topbar_main_region_layout(const bContext *C, ARegion *region)
+{
+  ED_region_header_layout(C, region);
+  ui::region_icon_buttons_scale(region, 1.6f);
+}
+
 static void topbar_operatortypes() {}
 
 static void topbar_keymap(wmKeyConfig * /*keyconf*/) {}
@@ -306,7 +321,7 @@ void ED_spacetype_topbar()
   art = MEM_new_zeroed<ARegionType>("spacetype topbar main region");
   art->regionid = RGN_TYPE_WINDOW;
   art->init = topbar_main_region_init;
-  art->layout = ED_region_header_layout;
+  art->layout = topbar_main_region_layout;
   art->draw = ED_region_header_draw;
   art->listener = topbar_main_region_listener;
   art->prefsizex = UI_UNIT_X * 5; /* Mainly to avoid glitches */

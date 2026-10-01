@@ -72,6 +72,17 @@ void button_drag_set_path(Button *but, const char *path)
   but->dragflag |= BUT_DRAGPOIN_FREE;
 }
 
+void button_drag_set_string(Button *but, std::string str)
+{
+  /* C4D Feel: owned string payload (WM_DRAG_STRING), e.g. Object Manager tags. */
+  if (but->dragflag & BUT_DRAGPOIN_FREE) {
+    WM_drag_data_free(but->dragtype, but->dragpoin);
+  }
+  but->dragtype = WM_DRAG_STRING;
+  but->dragpoin = MEM_new<std::string>(__func__, std::move(str));
+  but->dragflag |= BUT_DRAGPOIN_FREE;
+}
+
 void button_drag_set_name(Button *but, const char *name)
 {
   but->dragtype = WM_DRAG_NAME;

@@ -4479,6 +4479,14 @@ static void rna_def_space_outliner(BlenderRNA *brna)
       prop, "Sync Outliner Selection", "Sync outliner selection with other editors");
   RNA_def_property_update(prop, NC_SPACE | ND_SPACE_OUTLINER, nullptr);
 
+  prop = RNA_def_property(srna, "use_c4d_style", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "flag", SO_C4D_STYLE);
+  RNA_def_property_ui_text(prop,
+                           "Cinema 4D Style",
+                           "Show objects like the Cinema 4D Object Manager: editor/render "
+                           "visibility dots, generator on/off check and tag icons");
+  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_OUTLINER, nullptr);
+
   prop = RNA_def_property(srna, "show_mode_column", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, nullptr, "flag", SO_MODE_COLUMN);
   RNA_def_property_ui_text(

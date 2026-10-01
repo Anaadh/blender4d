@@ -1249,6 +1249,9 @@ static void screen_global_area_refresh(wmWindow *win,
 
   if (area) {
     screen_area_set_geometry_rect(area, rect);
+    /* Sizes can change at runtime (C4D Feel palette row). */
+    area->global->size_max = height_max;
+    area->global->size_min = height_min;
   }
   else {
     area = screen_area_create_with_geometry(&win->global_areas, rect, space_type);
@@ -1273,9 +1276,16 @@ static int screen_global_header_size()
   return int(ceilf(ED_area_headersize() / UI_SCALE_FAC));
 }
 
+/* C4D Feel: #bScreen.flag bit for the palette row. Kept out of DNA_screen_types.h
+ * (also used by rna_screen.cc) to avoid a full rebuild; next free bit after
+ * SCREEN_COLLAPSE_STATUSBAR. */
+constexpr short SCREEN_C4D_PALETTE = 4;
+
 static void screen_global_topbar_area_refresh(wmWindow *win, bScreen *screen)
 {
-  const short size = screen_global_header_size();
+  const short header = screen_global_header_size();
+  /* C4D Feel: second, taller row for the command palette. */
+  const short size = (screen->flag & SCREEN_C4D_PALETTE) ? short(header + header * 1.8f) : header;
   rcti rect;
 
   /* Use content rect to account for CSD, converted to inclusive bounds for area geometry. */

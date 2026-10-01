@@ -11,15 +11,21 @@
 #include "MEM_guardedalloc.h"
 
 #include "DNA_collection_types.h"
+#include "DNA_constraint_types.h"
+#include "DNA_modifier_types.h"
 #include "DNA_material_types.h"
 #include "DNA_object_types.h"
 #include "DNA_space_types.h"
 
 #include "BLI_listbase.h"
+#include "BLI_string_ref.hh"
+#include "BLI_vector.hh"
 
 #include "BLT_translation.hh"
 
 #include "BKE_collection.hh"
+#include "BKE_constraint.h"
+#include "BKE_idprop.hh"
 #include "BKE_context.hh"
 #include "BKE_layer.hh"
 #include "BKE_lib_id.hh"
@@ -708,6 +714,182 @@ void OUTLINER_OT_material_drop(wmOperatorType *ot)
   ot->poll = ED_operator_region_outliner_active;
 
   /* flags */
+  ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO | OPTYPE_INTERNAL;
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name C4D Feel: Tag Drop Operator
+ *
+ * Tags in the C4D style Object Manager are drag buttons carrying
+ * "C4DTAG\t<kind>\t<index>\t<object name>". Dropping one on another object
+ * copies it, like dragging a tag between objects in Cinema 4D.
+ * \{ */
+
+struct C4DTagDrag {
+  std::string kind;
+  int index = -1;
+  std::string source;
+};
+
+static std::optional<C4DTagDrag> c4d_tag_drag_parse(const std::string &str)
+{
+  if (!StringRef(str).startswith("C4DTAG\t")) {
+    return std::nullopt;
+  }
+  Vector<std::string> parts;
+  size_t start = 0;
+  for (int i = 0; i < 3; i++) {
+    const size_t tab = str.find('\t', start);
+    if (tab == std::string::npos) {
+      return std::nullopt;
+    }
+    parts.append(str.substr(start, tab - start));
+    start = tab + 1;
+  }
+  parts.append(str.substr(start));
+  C4DTagDrag d;
+  d.kind = parts[1];
+  d.index = std::atoi(parts[2].c_str());
+  d.source = parts[3];
+  return d;
+}
+
+static std::optional<C4DTagDrag> c4d_tag_drag_get(const wmDrag *drag)
+{
+  if (drag->type != WM_DRAG_STRING) {
+    return std::nullopt;
+  }
+  return c4d_tag_drag_parse(WM_drag_get_string(drag));
+}
+
+static bool c4d_tag_drop_poll(bContext *C, wmDrag *drag, const wmEvent *event)
+{
+  const std::optional<C4DTagDrag> d = c4d_tag_drag_get(drag);
+  if (!d) {
+    return false;
+  }
+  Object *ob = reinterpret_cast<Object *>(outliner_ID_drop_find(C, event, ID_OB));
+  return ob && ID_IS_EDITABLE(&ob->id) && !ID_IS_OVERRIDE_LIBRARY(&ob->id) &&
+         d->source != ob->id.name + 2;
+}
+
+static std::string c4d_tag_drop_tooltip(bContext * /*C*/,
+                                        wmDrag *drag,
+                                        const int /*xy*/[2],
+                                        wmDropBox * /*drop*/)
+{
+  const std::optional<C4DTagDrag> d = c4d_tag_drag_get(drag);
+  return d ? std::string(TIP_("Copy tag to object")) : std::string();
+}
+
+static void c4d_custom_tag_add(Object *dst, const Object *src, const int index)
+{
+  const IDProperty *src_prop = src->id.properties ? IDP_GetPropertyTypeFromGroup(
+                                                        src->id.properties, "c4d_tags", IDP_STRING) :
+                                                    nullptr;
+  if (src_prop == nullptr) {
+    return;
+  }
+  /* Find the index-th known key (same order as drawn). */
+  std::string key;
+  int i = 0;
+  StringRef rest = IDP_string_get(src_prop);
+  while (!rest.is_empty()) {
+    const int64_t comma = rest.find(',');
+    const StringRef k = comma == StringRef::not_found ? rest : rest.substr(0, comma);
+    rest = comma == StringRef::not_found ? StringRef() : rest.substr(comma + 1);
+    if (ELEM(k, "PROTECTION", "DISPLAY", "COMPOSITING")) {
+      if (i++ == index) {
+        key = k;
+        break;
+      }
+    }
+  }
+  if (key.empty()) {
+    return;
+  }
+  IDProperty *group = IDP_EnsureProperties(&dst->id);
+  IDProperty *dst_prop = IDP_GetPropertyTypeFromGroup(group, "c4d_tags", IDP_STRING);
+  if (dst_prop == nullptr) {
+    IDP_AddToGroup(group, IDP_NewString(StringRef(key), "c4d_tags"));
+  }
+  else {
+    std::string value = IDP_string_get(dst_prop);
+    if (("," + value + ",").find("," + key + ",") == std::string::npos) {
+      value = value.empty() ? key : value + "," + key;
+      IDP_AssignString(dst_prop, value.c_str());
+    }
+  }
+  if (key == "PROTECTION") {
+    dst->protectflag |= OB_LOCK_LOC | OB_LOCK_ROT | OB_LOCK_SCALE;
+  }
+}
+
+static wmOperatorStatus c4d_tag_drop_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+{
+  Main *bmain = CTX_data_main(C);
+  Scene *scene = CTX_data_scene(C);
+  Object *dst = id_cast<Object *>(outliner_ID_drop_find(C, event, ID_OB));
+  wmDrag *drag = static_cast<wmDrag *>(
+      static_cast<ListBaseT<wmDrag> *>(event->customdata)->first);
+  const std::optional<C4DTagDrag> d = drag ? c4d_tag_drag_get(drag) : std::nullopt;
+  if (!d || dst == nullptr || !BKE_id_is_editable(bmain, &dst->id)) {
+    return OPERATOR_CANCELLED;
+  }
+  Object *src = id_cast<Object *>(BKE_libblock_find_name(bmain, ID_OB, d->source.c_str()));
+  if (src == nullptr || src == dst) {
+    return OPERATOR_CANCELLED;
+  }
+
+  if (d->kind == "MODIFIER") {
+    ModifierData *md = static_cast<ModifierData *>(BLI_findlink(&src->modifiers, d->index));
+    if (md == nullptr ||
+        !ed::object::modifier_copy_to_object(bmain, scene, src, md, dst, op->reports))
+    {
+      return OPERATOR_CANCELLED;
+    }
+    WM_event_add_notifier(C, NC_OBJECT | ND_MODIFIER, dst);
+  }
+  else if (d->kind == "CONSTRAINT") {
+    bConstraint *con = static_cast<bConstraint *>(BLI_findlink(&src->constraints, d->index));
+    if (con == nullptr) {
+      return OPERATOR_CANCELLED;
+    }
+    BKE_constraint_copy_for_object(dst, con);
+    DEG_relations_tag_update(bmain);
+    WM_event_add_notifier(C, NC_OBJECT | ND_CONSTRAINT | NA_ADDED, dst);
+  }
+  else if (d->kind == "MATERIAL") {
+    Material *ma = BKE_object_material_get(src, d->index + 1);
+    if (ma == nullptr) {
+      return OPERATOR_CANCELLED;
+    }
+    BKE_object_material_assign(bmain, dst, ma, dst->totcol + 1, BKE_MAT_ASSIGN_USERPREF);
+    WM_event_add_notifier(C, NC_OBJECT | ND_OB_SHADING, dst);
+  }
+  else if (d->kind == "CUSTOM") {
+    c4d_custom_tag_add(dst, src, d->index);
+    WM_event_add_notifier(C, NC_OBJECT | ND_TRANSFORM, dst);
+  }
+  else {
+    return OPERATOR_CANCELLED;
+  }
+  DEG_id_tag_update(&dst->id, ID_RECALC_GEOMETRY | ID_RECALC_TRANSFORM);
+  WM_event_add_notifier(C, NC_SPACE | ND_SPACE_OUTLINER, nullptr);
+  return OPERATOR_FINISHED;
+}
+
+void OUTLINER_OT_c4d_tag_drop(wmOperatorType *ot)
+{
+  ot->name = "Drop Tag on Object";
+  ot->description = "Copy a Cinema 4D style tag (modifier, constraint, material) to the object";
+  ot->idname = "OUTLINER_OT_c4d_tag_drop";
+
+  ot->invoke = c4d_tag_drop_invoke;
+  ot->poll = ED_operator_region_outliner_active;
+
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO | OPTYPE_INTERNAL;
 }
 
@@ -1642,6 +1824,12 @@ void outliner_dropboxes()
   WM_dropbox_add(lb, "OUTLINER_OT_parent_clear", parent_clear_poll, nullptr, nullptr, nullptr);
   WM_dropbox_add(lb, "OUTLINER_OT_scene_drop", scene_drop_poll, nullptr, nullptr, nullptr);
   WM_dropbox_add(lb, "OUTLINER_OT_material_drop", material_drop_poll, nullptr, nullptr, nullptr);
+  WM_dropbox_add(lb,
+                 "OUTLINER_OT_c4d_tag_drop",
+                 c4d_tag_drop_poll,
+                 nullptr,
+                 nullptr,
+                 c4d_tag_drop_tooltip);
   WM_dropbox_add(lb,
                  "OUTLINER_OT_datastack_drop",
                  datastack_drop_poll,

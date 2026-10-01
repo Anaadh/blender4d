@@ -330,9 +330,20 @@ bool outliner_tree_traverse(const SpaceOutliner *space_outliner,
   return true;
 }
 
+bool outliner_use_c4d_style(const SpaceOutliner &space_outliner)
+{
+  return (space_outliner.flag & SO_C4D_STYLE) &&
+         ELEM(space_outliner.outlinevis, SO_VIEW_LAYER, SO_SCENES);
+}
+
 float outliner_right_columns_width(const SpaceOutliner *space_outliner)
 {
   int num_columns = 0;
+
+  if (outliner_use_c4d_style(*space_outliner)) {
+    /* Editor dot, render dot, generator check. */
+    return 3 * UI_UNIT_X + V2D_SCROLL_WIDTH;
+  }
 
   switch (space_outliner->outlinevis) {
     case SO_DATA_API:

@@ -485,6 +485,7 @@ void OUTLINER_OT_parent_drop(wmOperatorType *ot);
 void OUTLINER_OT_parent_clear(wmOperatorType *ot);
 void OUTLINER_OT_scene_drop(wmOperatorType *ot);
 void OUTLINER_OT_material_drop(wmOperatorType *ot);
+void OUTLINER_OT_c4d_tag_drop(wmOperatorType *ot);
 void OUTLINER_OT_datastack_drop(wmOperatorType *ot);
 void OUTLINER_OT_collection_drop(wmOperatorType *ot);
 
@@ -659,6 +660,8 @@ bool outliner_tree_traverse(const SpaceOutliner *space_outliner,
                             TreeTraversalFunc func,
                             void *customdata);
 float outliner_right_columns_width(const SpaceOutliner *space_outliner);
+/** C4D Feel: Cinema 4D style Object Manager columns are active. */
+bool outliner_use_c4d_style(const SpaceOutliner &space_outliner);
 /**
  * Find first tree element in tree with matching tree-store flag.
  */

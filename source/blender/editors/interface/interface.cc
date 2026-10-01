@@ -6333,6 +6333,17 @@ void button_hint_drawstr_set(Button *but, const char *string)
   button_add_shortcut(but, string, false);
 }
 
+void region_icon_buttons_scale(ARegion *region, const float scale)
+{
+  for (Block &block : region->runtime->uiblocks) {
+    for (std::unique_ptr<Button> &but : block.buttons_ptrs) {
+      if (but->icon != ICON_NONE && but->drawstr.empty()) {
+        but->icon_scale = scale;
+      }
+    }
+  }
+}
+
 void button_icon_scale_set(Button *but, const float scale)
 {
   but->icon_scale = scale;

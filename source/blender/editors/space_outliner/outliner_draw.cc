@@ -79,8 +79,20 @@
 #include "UI_view2d.hh"
 
 #include "RNA_access.hh"
+#include "RNA_enum_types.hh"
+#include "RNA_prototypes.hh"
+
+#include "BKE_idprop.hh"
+#include "BKE_material.hh"
+#include "BLI_rect.h"
+#include "BLI_vector.hh"
 
 #include "outliner_intern.hh"
+
+namespace blender::ui {
+/* C4D Feel: defined in interface_drag.cc; declared here to keep the header untouched. */
+void button_drag_set_string(Button *but, std::string str);
+}  // namespace blender::ui
 #include "tree/tree_element.hh"
 #include "tree/tree_element_grease_pencil_node.hh"
 #include "tree/tree_element_id.hh"
@@ -4029,6 +4041,346 @@ static void outliner_update_viewable_area(ARegion *region,
  * Draw contents of Outliner editor.
  * \{ */
 
+/* -------------------------------------------------------------------- */
+/** \name C4D Feel: Cinema 4D style Object Manager columns
+ *
+ * Right columns (right to left): generator check, render dot, editor dot.
+ * Tag icons (modifiers, constraints, materials) sit just left of them.
+ * Buttons are drawn without icons; the dots and check are painted on top so
+ * they can use Cinema 4D's colors.
+ * \{ */
+
+enum { C4D_COL_CHECK = 1, C4D_COL_RENDER = 2, C4D_COL_EDITOR = 3 };
+
+static float c4d_column_x(const ARegion *region, int column)
+{
+  return region->v2d.cur.xmax - (column * UI_UNIT_X + V2D_SCROLL_WIDTH);
+}
+
+static Base *c4d_object_base(const TreeViewContext &tvc, const TreeElement &te, Object *ob)
+{
+  BKE_view_layer_synced_ensure(*tvc.bmain, tvc.scene, tvc.view_layer);
+  return te.directdata ? static_cast<Base *>(te.directdata) :
+                         BKE_view_layer_base_find(tvc.view_layer, ob);
+}
+
+static bool c4d_editor_hidden(const TreeViewContext &tvc, const TreeElement &te, Object *ob)
+{
+  const Base *base = c4d_object_base(tvc, te, ob);
+  const bool base_hidden = base && (base->flag & BASE_HIDDEN);
+  return base_hidden || (ob->visibility_flag & OB_HIDE_VIEWPORT);
+}
+
+static bool c4d_generators_enabled(const Object *ob)
+{
+  for (const ModifierData &md : ob->modifiers) {
+    if (md.mode & eModifierMode_Realtime) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static void c4d_toggle_bool(bContext &C, PointerRNA ptr, const char *prop_name)
+{
+  PropertyRNA *prop = RNA_struct_find_property(&ptr, prop_name);
+  if (prop == nullptr) {
+    return;
+  }
+  RNA_property_boolean_set(&ptr, prop, !RNA_property_boolean_get(&ptr, prop));
+  RNA_property_update(&C, &ptr, prop);
+}
+
+struct C4DTag {
+  int icon;
+  const char *kind; /* MODIFIER, CONSTRAINT, MATERIAL, CUSTOM, CAMERA */
+  int index;
+};
+
+/** Tags shown on an object's row, in C4D order. */
+static Vector<C4DTag> c4d_collect_tags(Object *ob, const Scene *scene)
+{
+  Vector<C4DTag> tags;
+  if (ob->type == OB_CAMERA) {
+    /* Look-through toggle, like C4D's camera icon in the Object Manager. */
+    tags.append({(scene && scene->camera == ob) ? ICON_VIEW_CAMERA : ICON_VIEW_CAMERA_UNSELECTED,
+                 "CAMERA",
+                 0});
+  }
+  int i = 0;
+  for (ModifierData &md : ob->modifiers) {
+    int icon = ICON_MODIFIER;
+    RNA_enum_icon_from_value(rna_enum_object_modifier_type_items, md.type, &icon);
+    tags.append({icon, "MODIFIER", i++});
+  }
+  i = 0;
+  for ([[maybe_unused]] bConstraint &con : ob->constraints) {
+    tags.append({ICON_CONSTRAINT, "CONSTRAINT", i++});
+  }
+  for (int m = 0; m < ob->totcol; m++) {
+    if (BKE_object_material_get(ob, m + 1)) {
+      tags.append({ICON_MATERIAL, "MATERIAL", m});
+    }
+  }
+  /* C4D Feel custom tags (Protection, Display, Compositing) stored as a
+   * comma separated "c4d_tags" string property by the add-on. */
+  if (ob->id.properties) {
+    if (const IDProperty *prop = IDP_GetPropertyTypeFromGroup(
+            ob->id.properties, "c4d_tags", IDP_STRING))
+    {
+      int custom_index = 0;
+      StringRef rest = IDP_string_get(prop);
+      while (!rest.is_empty()) {
+        const int64_t comma = rest.find(',');
+        const StringRef key = comma == StringRef::not_found ? rest : rest.substr(0, comma);
+        rest = comma == StringRef::not_found ? StringRef() : rest.substr(comma + 1);
+        int icon = ICON_NONE;
+        if (key == "PROTECTION") {
+          icon = ICON_LOCKED;
+        }
+        else if (key == "DISPLAY") {
+          icon = ICON_SHADING_TEXTURE;
+        }
+        else if (key == "COMPOSITING") {
+          icon = ICON_RENDERLAYERS;
+        }
+        if (icon != ICON_NONE) {
+          tags.append({icon, "CUSTOM", custom_index++});
+        }
+      }
+    }
+  }
+  return tags;
+}
+
+/** First visible tag index and its x, tags right-aligned against the columns. */
+static int c4d_tags_start(const ARegion *region,
+                          const TreeElement *te,
+                          const float right_column_width,
+                          const int count,
+                          float *r_x)
+{
+  const float x_end = region->v2d.cur.xmax - right_column_width - 0.25f * UI_UNIT_X;
+  float x = x_end - count * UI_UNIT_X;
+  const float x_min = te->xend + 0.5f * UI_UNIT_X;
+  int skip = 0;
+  while (x < x_min && skip < count) {
+    x += UI_UNIT_X; /* Not enough room: drop the leftmost tags. */
+    skip++;
+  }
+  *r_x = x;
+  return skip;
+}
+
+static void outliner_draw_c4d_buts(ui::Block *block,
+                                   const TreeViewContext &tvc,
+                                   ARegion *region,
+                                   SpaceOutliner *space_outliner,
+                                   const float right_column_width)
+{
+  wmOperatorType *ot_tag = WM_operatortype_find("C4D_OT_om_tag", true);
+
+  tree_iterator::all_open(*space_outliner, [&](TreeElement *te) {
+    if (!outliner_is_element_in_view(te, &region->v2d)) {
+      return;
+    }
+    TreeStoreElem *tselem = TREESTORE(te);
+    if (!(tselem->type == TSE_SOME_ID && te->idcode == ID_OB)) {
+      return;
+    }
+    Object *ob = id_cast<Object *>(tselem->id);
+    Scene *scene = tvc.scene;
+    ui::Button *bt;
+
+    /* Editor dot: temporary hide (eye) when the object has a base, else "Disable in Viewports". */
+    bt = uiDefIconBut(block,
+                      ui::ButtonType::But,
+                      ICON_NONE,
+                      int(c4d_column_x(region, C4D_COL_EDITOR)),
+                      te->ys,
+                      UI_UNIT_X,
+                      UI_UNIT_Y,
+                      nullptr,
+                      0,
+                      0,
+                      TIP_("Visible in Editor (grey: visible, red: hidden)"));
+    Base *base = c4d_object_base(tvc, *te, ob);
+    ui::button_func_set(bt, [scene, base, ob](bContext &C) {
+      if (base) {
+        c4d_toggle_bool(C, RNA_pointer_create_discrete(&scene->id, RNA_ObjectBase, base),
+                        "hide_viewport");
+      }
+      else {
+        c4d_toggle_bool(C, RNA_id_pointer_create(&ob->id), "hide_viewport");
+      }
+    });
+
+    /* Render dot. */
+    bt = uiDefIconBut(block,
+                      ui::ButtonType::But,
+                      ICON_NONE,
+                      int(c4d_column_x(region, C4D_COL_RENDER)),
+                      te->ys,
+                      UI_UNIT_X,
+                      UI_UNIT_Y,
+                      nullptr,
+                      0,
+                      0,
+                      TIP_("Visible in Renderer (grey: visible, red: hidden)"));
+    ui::button_func_set(bt, [ob](bContext &C) {
+      c4d_toggle_bool(C, RNA_id_pointer_create(&ob->id), "hide_render");
+    });
+
+    /* Generator check: all modifiers on / off. */
+    if (!BLI_listbase_is_empty(&ob->modifiers)) {
+      bt = uiDefIconBut(block,
+                        ui::ButtonType::But,
+                        ICON_NONE,
+                        int(c4d_column_x(region, C4D_COL_CHECK)),
+                        te->ys,
+                        UI_UNIT_X,
+                        UI_UNIT_Y,
+                        nullptr,
+                        0,
+                        0,
+                        TIP_("Enable / disable generators and deformers"));
+      ui::button_func_set(bt, [ob](bContext &C) {
+        const bool enable = !c4d_generators_enabled(ob);
+        for (ModifierData &md : ob->modifiers) {
+          PointerRNA ptr = RNA_pointer_create_discrete(&ob->id, RNA_Modifier, &md);
+          PropertyRNA *show_viewport = RNA_struct_find_property(&ptr, "show_viewport");
+          PropertyRNA *show_render = RNA_struct_find_property(&ptr, "show_render");
+          RNA_property_boolean_set(&ptr, show_viewport, enable);
+          RNA_property_boolean_set(&ptr, show_render, enable);
+          RNA_property_update(&C, &ptr, show_viewport);
+        }
+      });
+    }
+
+    /* Tags, right-aligned against the columns. Drag a tag onto another object
+     * to copy it (see OUTLINER_OT_c4d_tag_drop). */
+    const Vector<C4DTag> tags = c4d_collect_tags(ob, scene);
+    if (tags.is_empty()) {
+      return;
+    }
+    wmOperatorType *ot_camera = WM_operatortype_find("C4D_OT_look_through", true);
+    float x;
+    const int skip = c4d_tags_start(region, te, right_column_width, tags.size(), &x);
+    for (int t = skip; t < tags.size(); t++, x += UI_UNIT_X) {
+      const C4DTag &tag = tags[t];
+      const bool is_camera = STREQ(tag.kind, "CAMERA");
+      wmOperatorType *ot = is_camera ? ot_camera : ot_tag;
+      if (ot == nullptr) {
+        uiDefIconBut(block,
+                     ui::ButtonType::Label,
+                     tag.icon,
+                     int(x),
+                     te->ys,
+                     UI_UNIT_X,
+                     UI_UNIT_Y,
+                     nullptr,
+                     0,
+                     0,
+                     std::nullopt);
+        continue;
+      }
+      bt = uiDefIconButO_ptr(block,
+                             ui::ButtonType::But,
+                             ot,
+                             wm::OpCallContext::InvokeDefault,
+                             tag.icon,
+                             int(x),
+                             te->ys,
+                             UI_UNIT_X,
+                             UI_UNIT_Y,
+                             is_camera ? TIP_("Look through this camera (navigating moves it)") :
+                                         TIP_("Show this tag in the Attribute Manager\n"
+                                              " • Drag onto another object to copy it"));
+      PointerRNA *opptr = ui::button_operator_ptr_ensure(bt);
+      RNA_string_set(opptr, "name", ob->id.name + 2);
+      if (!is_camera) {
+        RNA_string_set(opptr, "kind", tag.kind);
+        RNA_int_set(opptr, "index", tag.index);
+        ui::button_drag_set_string(
+            bt,
+            std::string("C4DTAG\t") + tag.kind + "\t" + std::to_string(tag.index) + "\t" +
+                (ob->id.name + 2));
+      }
+    }
+  });
+}
+
+/** Paint the dots and the check / cross (drawn under the transparent buttons). */
+static void outliner_draw_c4d_overlay(const TreeViewContext &tvc,
+                                      const ARegion *region,
+                                      const SpaceOutliner *space_outliner,
+                                      const float right_column_width)
+{
+  const float backing[4] = {0.13f, 0.13f, 0.13f, 0.85f};
+  const float grey[4] = {0.53f, 0.53f, 0.53f, 1.0f};
+  const float red[4] = {0.88f, 0.24f, 0.22f, 1.0f};
+  const uchar green[4] = {90, 210, 100, 255};
+  const uchar red_ub[4] = {225, 60, 55, 255};
+  const float r = 0.2f * UI_UNIT_X;
+
+  GPU_blend(GPU_BLEND_ALPHA);
+  ui::draw_roundbox_corner_set(ui::CNR_ALL);
+  tree_iterator::all_open(*space_outliner, [&](const TreeElement *te) {
+    if (!outliner_is_element_in_view(te, &region->v2d)) {
+      return;
+    }
+    const TreeStoreElem *tselem = TREESTORE(te);
+    if (!(tselem->type == TSE_SOME_ID && te->idcode == ID_OB)) {
+      return;
+    }
+    Object *ob = id_cast<Object *>(tselem->id);
+    const float cy = te->ys + 0.5f * UI_UNIT_Y;
+
+    auto dot = [&](int column, bool hidden) {
+      const float cx = c4d_column_x(region, column) + 0.5f * UI_UNIT_X;
+      rctf rect;
+      BLI_rctf_init(&rect, cx - r, cx + r, cy - r, cy + r);
+      ui::draw_roundbox_4fv(&rect, true, r, hidden ? red : grey);
+    };
+    /* Keep tag icons readable on the blue selection highlight. */
+    const Base *base = c4d_object_base(tvc, *te, ob);
+    if (base && (base->flag & BASE_SELECTED)) {
+      const Vector<C4DTag> tags = c4d_collect_tags(ob, tvc.scene);
+      if (!tags.is_empty()) {
+        float x;
+        const int skip = c4d_tags_start(region, te, right_column_width, tags.size(), &x);
+        if (skip < tags.size()) {
+          rctf rect;
+          BLI_rctf_init(&rect,
+                        x - 0.1f * UI_UNIT_X,
+                        x + (tags.size() - skip + 0.1f) * UI_UNIT_X,
+                        te->ys + 0.1f * UI_UNIT_Y,
+                        te->ys + 0.9f * UI_UNIT_Y);
+          ui::draw_roundbox_4fv(&rect, true, 0.2f * UI_UNIT_Y, backing);
+        }
+      }
+    }
+    dot(C4D_COL_EDITOR, c4d_editor_hidden(tvc, *te, ob));
+    dot(C4D_COL_RENDER, ob->visibility_flag & OB_HIDE_RENDER);
+
+    if (!BLI_listbase_is_empty(&ob->modifiers)) {
+      const bool on = c4d_generators_enabled(ob);
+      ui::icon_draw_ex(c4d_column_x(region, C4D_COL_CHECK) + 0.1f * UI_UNIT_X,
+                       te->ys + 0.1f * UI_UNIT_Y,
+                       on ? ICON_CHECKMARK : ICON_X,
+                       UI_INV_SCALE_FAC,
+                       1.0f,
+                       0.0f,
+                       on ? green : red_ub,
+                       false,
+                       nullptr);
+    }
+  });
+  GPU_blend(GPU_BLEND_NONE);
+}
+
+/** \} */
+
 void draw_outliner(const bContext *C, bool do_rebuild)
 {
   Main *mainvar = CTX_data_main(C);
@@ -4132,6 +4484,11 @@ void draw_outliner(const bContext *C, bool do_rebuild)
       outliner_draw_overrides_restrictbuts(
           mainvar, block, region, space_outliner, &space_outliner->runtime->tree, x);
     }
+  }
+  else if (outliner_use_c4d_style(*space_outliner)) {
+    /* C4D Feel: Object Manager columns instead of the restriction columns. */
+    outliner_draw_c4d_overlay(tvc, region, space_outliner, right_column_width);
+    outliner_draw_c4d_buts(block, tvc, region, space_outliner, right_column_width);
   }
   else if (right_column_width > 0.0f) {
     /* draw restriction columns */

@@ -1534,6 +1534,8 @@ UserDef *BKE_blendfile_userdef_from_defaults()
         "cycles",
         "pose_library",
         "bl_pkg",
+        /* C4D Feel: Cinema 4D style UI, bundled with this fork. */
+        "c4d_feel",
     };
     for (int i = 0; i < ARRAY_SIZE(addons); i++) {
       bAddon *addon = BKE_addon_new();

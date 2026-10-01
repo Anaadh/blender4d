@@ -70,6 +70,7 @@ void outliner_operatortypes()
   WM_operatortype_append(OUTLINER_OT_parent_clear);
   WM_operatortype_append(OUTLINER_OT_scene_drop);
   WM_operatortype_append(OUTLINER_OT_material_drop);
+  WM_operatortype_append(OUTLINER_OT_c4d_tag_drop);
   WM_operatortype_append(OUTLINER_OT_datastack_drop);
   WM_operatortype_append(OUTLINER_OT_collection_drop);
 
