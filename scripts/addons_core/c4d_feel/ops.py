@@ -90,6 +90,14 @@ class C4D_OT_make_editable(bpy.types.Operator):
                 o.select_set(o is c)
             context.view_layer.objects.active = c
             bpy.ops.object.duplicates_make_real(use_base_parent=True, use_hierarchy=True)
+            # The real clones are copies of the templates: visible again, and baked
+            # now so clones of generators don't lose their inputs when those go.
+            clones = [o for o in context.selected_objects if o is not c]
+            for o in clones:
+                o.hide_render = False
+            if clones:
+                _select_only(context, clones)
+                bpy.ops.object.convert(target='MESH')
             c.modifiers.remove(cloner_modifier(c))
         for o in doomed:
             colls = list(o.users_collection)

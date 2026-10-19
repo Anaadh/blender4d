@@ -261,8 +261,11 @@ def build_effector_group():
     t.link(cube.outputs["Mesh"], m2c.inputs["Mesh"])
     box = m2c.outputs["Curve"]
     linear = t.join(cross, line((0.0, 0.0, 0.0), t.xyz(t.i("Radius"), 0.0, 0.0)))
-    gizmo = t.menu_switch('GEOMETRY', t.i("Falloff"),
-                          {"Infinite": cross, "Spherical": sphere, "Box": box, "Linear": linear})
+    # A group menu input may feed only one Menu Switch, so pick the gizmo by the int.
+    gizmo = t.switch('GEOMETRY', t.eq(falloff, 1.0),
+                     t.switch('GEOMETRY', t.eq(falloff, 2.0),
+                              t.switch('GEOMETRY', t.eq(falloff, 3.0), cross, linear), box),
+                     sphere)
     t.finish(t.join(geo, gizmo))
     return ng
 
@@ -317,7 +320,9 @@ def build_group():
     half = t.math('MULTIPLY', sep.outputs["Z"], 0.5)
     zline = t.node('GeometryNodeMeshLine', mode='END_POINTS')
     t.link(t.i("Grid Count Z"), zline.inputs["Count"])
-    t.link(t.xyz(0.0, 0.0, t.math('MULTIPLY', half, -1.0)), zline.inputs["Start Location"])
+    # One layer sits at the start point, so start at 0 then (centred otherwise).
+    layers = t.math('MINIMUM', t.math('SUBTRACT', t.i("Grid Count Z"), 1.0), 1.0)
+    t.link(t.xyz(0.0, 0.0, t.math('MULTIPLY', t.math('MULTIPLY', half, -1.0), layers)), zline.inputs["Start Location"])
     t.link(t.xyz(0.0, 0.0, half), zline.inputs["Offset"])
     stack = t.node('GeometryNodeInstanceOnPoints')
     t.link(zline.outputs[0], stack.inputs["Points"])
@@ -326,8 +331,8 @@ def build_group():
 
     # Honeycomb: the XY grid with every other row shifted by half a cell.
     gindex = t.node('GeometryNodeInputIndex').outputs[0]
-    row = t.math('FLOOR', t.math('DIVIDE', gindex, t.i("Grid Count X")))
-    odd = t.math('FLOORED_MODULO', row, 2.0)
+    # Grid vertex order is x-major (index = x * count_y + y), so the row is index mod count_y.
+    odd = t.math('FLOORED_MODULO', t.math('FLOORED_MODULO', gindex, t.i("Grid Count Y")), 2.0)
     cell = t.math('DIVIDE', sep.outputs["X"], t.math('MAXIMUM', t.math('SUBTRACT', t.i("Grid Count X"), 1.0), 1.0))
     honey = t.node('GeometryNodeSetPosition')
     t.link(grid.outputs[0], honey.inputs["Geometry"])

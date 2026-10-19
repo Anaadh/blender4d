@@ -253,11 +253,12 @@ class C4D_OT_add_generator(bpy.types.Operator):
 
     def execute(self, context):
         sources = [o for o in context.selected_objects if _is_child_material(o)]
+        active = context.active_object
         if not sources:
             sources = _default_children(context, self.kind)
+            active = sources[0]
         if self.kind == "Boolean" and len(sources) > 1:
             # Collection order is name order: the active object is A.
-            active = context.active_object
             if active in sources:
                 sources.remove(active)
                 sources.insert(0, active)

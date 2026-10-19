@@ -337,7 +337,7 @@ def _build_generator(name, b):
         b.link(set_r.outputs[0], set_t.inputs["Curve"])
         b.link(b.math('MULTIPLY', param.outputs["Factor"], b.i("Rotation")), set_t.inputs["Tilt"])
         set_n = b.node('GeometryNodeSetCurveNormal')
-        set_n.inputs["Mode"].default_value = 'FREE'
+        set_n.inputs["Mode"].default_value = 'Free'  # menu values are item names
         b.link(set_t.outputs[0], set_n.inputs["Curve"])
         b.link(to_rail.outputs["Vector"], set_n.inputs["Normal"])
         path = b.node('GeometryNodeSwitch', input_type='GEOMETRY')
