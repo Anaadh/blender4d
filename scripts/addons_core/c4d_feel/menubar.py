@@ -41,7 +41,7 @@ class C4D_MT_main_modes(bpy.types.Menu):
             l.operator("c4d.component_mode", text=label, icon=icon).mode = mode
         l.operator("c4d.set_workspace", text="UV Mode", icon='UV').name = "UV Editing"
         l.separator()
-        l.prop(context.tool_settings, "use_transform_data_origin", text="Enable Axis")
+        l.prop(context.tool_settings, "use_transform_data_origin", text="Enable Axis\tL")
         l.operator("object.origin_set", text="Center Axis to Geometry").type = 'ORIGIN_GEOMETRY'
         l.separator()
         l.operator_menu_enum("object.mode_set", "mode", text="Blender Mode")
@@ -105,8 +105,9 @@ class C4D_MT_main_mesh(bpy.types.Menu):
     def draw(self, context):
         l = self.layout
         l.operator("c4d.make_editable", text="Make Editable\tC")
-        l.operator("object.convert", text="Current State to Object").target = 'MESH'
-        l.operator("object.join", text="Connect Objects + Delete")
+        l.operator("c4d.current_state_to_object", text="Current State to Object")
+        l.operator("c4d.connect_objects", text="Connect Objects").delete = False
+        l.operator("c4d.connect_objects", text="Connect Objects + Delete").delete = True
         l.separator()
         l.label(text="Create Tools")
         for key, text in (('E', "Polygon Pen"), ('K', "Line Cut"), ('L', "Loop/Path Cut"),

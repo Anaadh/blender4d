@@ -23,7 +23,7 @@ GROUP = "C4D Cloner"
 EFFECTOR_GROUP = "C4D Effector"
 VERSION = {GROUP: 2, EFFECTOR_GROUP: 1}  # bump when a node tree changes
 
-MODES = ("Linear", "Radial", "Grid", "Object")
+MODES = ("Linear", "Radial", "Grid", "Honeycomb", "Object")
 DISTRIBUTIONS = ("Vertex", "Polygon Center", "Surface", "Spline")
 EFFECTOR_KINDS = ("Plain", "Random", "Step")
 FALLOFFS = ("Infinite", "Spherical", "Box", "Linear")
@@ -35,10 +35,10 @@ MODE_ONLY = {
     "Count": ("Linear", "Radial", "Object"),
     "Offset": ("Linear",),
     "Radius": ("Radial",),
-    "Grid Count X": ("Grid",),
-    "Grid Count Y": ("Grid",),
+    "Grid Count X": ("Grid", "Honeycomb"),
+    "Grid Count Y": ("Grid", "Honeycomb"),
     "Grid Count Z": ("Grid",),
-    "Grid Size": ("Grid",),
+    "Grid Size": ("Grid", "Honeycomb"),
     "Object": ("Object",),
     "Distribution": ("Object",),
     "Align Clone": ("Object", "Radial"),
@@ -324,6 +324,15 @@ def build_group():
     t.link(grid.outputs[0], stack.inputs["Instance"])
     grid_pts = t.realize(stack.outputs[0])
 
+    # Honeycomb: the XY grid with every other row shifted by half a cell.
+    gindex = t.node('GeometryNodeInputIndex').outputs[0]
+    row = t.math('FLOOR', t.math('DIVIDE', gindex, t.i("Grid Count X")))
+    odd = t.math('FLOORED_MODULO', row, 2.0)
+    cell = t.math('DIVIDE', sep.outputs["X"], t.math('MAXIMUM', t.math('SUBTRACT', t.i("Grid Count X"), 1.0), 1.0))
+    honey = t.node('GeometryNodeSetPosition')
+    t.link(grid.outputs[0], honey.inputs["Geometry"])
+    t.link(t.xyz(t.math('MULTIPLY', odd, t.math('MULTIPLY', cell, 0.5)), 0.0, 0.0), honey.inputs["Offset"])
+
     # Object mode: clone onto another object's vertices / polygons / surface / spline.
     info = t.node('GeometryNodeObjectInfo', transform_space='RELATIVE')
     t.link(t.i("Object"), info.inputs["Object"])
@@ -354,7 +363,8 @@ def build_group():
                              "Surface": surface, "Spline": spline})
 
     points = t.menu_switch('GEOMETRY', t.i("Mode"),
-                           {"Linear": line.outputs[0], "Radial": radial, "Grid": grid_pts, "Object": obj_pts})
+                           {"Linear": line.outputs[0], "Radial": radial, "Grid": grid_pts,
+                            "Honeycomb": honey.outputs[0], "Object": obj_pts})
 
     # --- clone the children ---------------------------------------------
     coll = t.node('GeometryNodeCollectionInfo')

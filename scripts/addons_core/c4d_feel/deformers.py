@@ -22,10 +22,13 @@ KINDS = {
     'TAPER': ("Taper", 'SINGLE_ARROW', 'SIMPLE_DEFORM', {"deform_method": 'TAPER', "factor": 0.5}),
     'STRETCH': ("Squash & Stretch", 'SINGLE_ARROW', 'SIMPLE_DEFORM', {"deform_method": 'STRETCH', "factor": 0.3}),
     'WAVE': ("Wave", 'CIRCLE', 'WAVE', {"height": 0.2, "width": 1.0}),
+    'SPHERIFY': ("Spherify", 'SPHERE', 'CAST', {"cast_type": 'SPHERE', "factor": 0.5, "use_transform": True}),
+    'DISPLACER': ("Displacer", 'CUBE', 'DISPLACE', {"texture_coords": 'OBJECT', "strength": 0.2}),
 }
 
 # Modifier property holding the controlling object, per modifier type.
-ORIGIN_PROP = {'SIMPLE_DEFORM': "origin", 'WAVE': "start_position_object"}
+ORIGIN_PROP = {'SIMPLE_DEFORM': "origin", 'WAVE': "start_position_object", 'CAST': "object",
+               'DISPLACE': "texture_coords_object"}
 
 
 def _modifier_for(target, deformer):
@@ -59,6 +62,9 @@ def _sync():
             setattr(m, k, v)
         if mtype == 'SIMPLE_DEFORM':
             m.deform_axis = 'Z'  # C4D Y-up = Blender Z-up
+        if mtype == 'DISPLACE' and m.texture is None:
+            # C4D Displacer: a noise shader by default; move the deformer to slide it.
+            m.texture = bpy.data.textures.get("Displacer") or bpy.data.textures.new("Displacer", 'CLOUDS')
 
 
 _busy = False

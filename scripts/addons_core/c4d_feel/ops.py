@@ -105,6 +105,78 @@ class C4D_OT_make_editable(bpy.types.Operator):
         return {'FINISHED'}
 
 
+def _select_only(context, objs):
+    for o in context.selected_objects:
+        o.select_set(False)
+    for o in objs:
+        o.select_set(True)
+    context.view_layer.objects.active = objs[0] if objs else None
+
+
+class C4D_OT_current_state_to_object(bpy.types.Operator):
+    """Bake a copy of the selection in its current state; the originals stay parametric (C4D Current State to Object)"""
+    bl_idname = "c4d.current_state_to_object"
+    bl_label = "Current State to Object"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT' and context.selected_objects
+
+    def execute(self, context):
+        from .generators import sync_children
+        roots = list(context.selected_objects)
+        # Duplicate with the children, so generators keep their inputs, then bake the copies.
+        family = list(roots)
+        for o in roots:
+            family += [c for c in o.children_recursive if c not in family]
+        hidden = [o for o in family if o.hide_get()]
+        for o in hidden:
+            o.hide_set(False)  # hidden objects can't be selected for duplication
+        _select_only(context, family)
+        bpy.ops.object.duplicate(linked=False)
+        copies = list(context.selected_objects)
+        for o in hidden:
+            o.hide_set(True)
+        sync_children(context.scene)  # copied generators get their own children collections
+        copy_roots = [o for o in copies if o.parent not in copies]
+        _select_only(context, copy_roots)
+        bpy.ops.c4d.make_editable()
+        return {'FINISHED'}
+
+
+class C4D_OT_connect_objects(bpy.types.Operator):
+    """Join the selected objects into one polygon object in their current state (C4D Connect Objects)"""
+    bl_idname = "c4d.connect_objects"
+    bl_label = "Connect Objects"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    delete: bpy.props.BoolProperty(name="Delete", default=True,
+                                   description="Remove the originals (C4D Connect Objects + Delete)")
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT' and len(context.selected_objects) >= 2
+
+    def execute(self, context):
+        if self.delete:
+            bpy.ops.c4d.make_editable()
+        else:
+            bpy.ops.c4d.current_state_to_object()
+        baked = list(context.selected_objects)
+        for o in list(baked):
+            baked += [c for c in o.children_recursive if c not in baked]  # a Cloner's clones
+        meshes = [o for o in baked if o.type == 'MESH']
+        if len(meshes) < 2:
+            self.report({'WARNING'}, "Need at least two polygon objects to connect")
+            return {'CANCELLED'}
+        _select_only(context, meshes)
+        if context.active_object not in meshes:
+            context.view_layer.objects.active = meshes[0]
+        bpy.ops.object.join()
+        return {'FINISHED'}
+
+
 class C4D_OT_group(bpy.types.Operator):
     """Parent the selection under a new Null (empty) at its center (C4D Alt+G)"""
     bl_idname = "c4d.group"
@@ -400,7 +472,7 @@ classes = (
     C4D_OT_transform_drag,
     C4D_OT_tool_set,
     C4D_OT_tool_toggle_last,
-    C4D_OT_make_editable,
+    C4D_OT_make_editable, C4D_OT_current_state_to_object, C4D_OT_connect_objects,
     C4D_OT_group,
     C4D_OT_ungroup,
     C4D_OT_toggle_generators,

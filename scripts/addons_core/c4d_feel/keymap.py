@@ -72,6 +72,7 @@ def register():
         b(VIEW, "c4d.tool_set", key, props={"name": tool})
     b(VIEW, "c4d.tool_toggle_last", 'SPACE')
     b(VIEW, "c4d.coord_toggle", 'W')
+    b(VIEW, "wm.context_toggle", 'L', props={"data_path": "tool_settings.use_transform_data_origin"})  # Enable Axis
     b(VIEW, "wm.call_panel", 'P', props={"name": "VIEW3D_PT_snapping", "keep_open": True})
 
     # --- Selection -------------------------------------------------------
@@ -99,6 +100,7 @@ def register():
     b(VIEW + ("Window",), "render.render", 'R', ctrl=True, props={"use_viewport": True})
     b(("Window",), "render.render", 'R', shift=True, props={"use_viewport": True})
     b(VIEW, "c4d.interactive_render", 'R', alt=True)
+    b(("Window",), "c4d.render_settings", 'B', ctrl=True)
     b(("Window",), "screen.userpref_show", 'E', ctrl=True)
     b(("Window",), "wm.search_menu", 'C', shift=True)  # Commander
 

@@ -16,7 +16,7 @@ import math
 import bpy
 
 PREFIX = "C4D "
-VERSION = {"Extrude": 2, "Sweep": 3}  # bump when a node tree changes
+VERSION = {"Extrude": 2, "Sweep": 4}  # bump when a node tree changes
 
 SPLINE_SPECS = {
     "Circle": [("Radius", 'NodeSocketFloat', 1.0, 0.0, 'DISTANCE'),
@@ -55,7 +55,9 @@ GEN_SPECS = {
               ("Caps", 'NodeSocketBool', True, None, None),
               ("Start Scale", 'NodeSocketFloat', 1.0, 0.0, 'FACTOR'),
               ("End Scale", 'NodeSocketFloat', 1.0, 0.0, 'FACTOR'),
-              ("Rotation", 'NodeSocketFloat', 0.0, None, 'ANGLE')],
+              ("Rotation", 'NodeSocketFloat', 0.0, None, 'ANGLE'),
+              ("Rail", 'NodeSocketObject', None, None, None),
+              ("Rail Scale", 'NodeSocketBool', False, None, None)],
     "Loft": [("Splines", 'NodeSocketCollection', None, None, None),
              ("Mesh Subdivision U", 'NodeSocketInt', 32, 2, None)],
 }
@@ -293,15 +295,58 @@ def _build_generator(name, b):
         b.link(param.outputs["Factor"], radius.inputs["Factor"])
         b.link(b.i("Start Scale"), radius.inputs["A"])
         b.link(b.i("End Scale"), radius.inputs["B"])
+
+        # Rail spline (C4D): the profile's up axis points at the rail, and with
+        # Rail Scale on, the rail's distance from the path scales the profile.
+        rail = _object_curve(b, "Rail")
+        size = b.node('GeometryNodeAttributeDomainSize', component='CURVE')
+        b.link(rail, size.inputs[0])
+        has_rail = b.node('FunctionNodeCompare', data_type='FLOAT', operation='GREATER_THAN')
+        b.link(size.outputs["Point Count"], has_rail.inputs["A"])
+        has_rail.inputs["B"].default_value = 0.0
+        on_rail = b.node('GeometryNodeSampleCurve', mode='FACTOR', use_all_curves=True)
+        b.link(rail, on_rail.inputs["Curves"])
+        b.link(param.outputs["Factor"], on_rail.inputs["Factor"])
+        ppos = b.node('GeometryNodeInputPosition')
+        to_rail = b.node('ShaderNodeVectorMath', operation='SUBTRACT')
+        b.link(on_rail.outputs["Position"], to_rail.inputs[0])
+        b.link(ppos.outputs[0], to_rail.inputs[1])
+        dist = b.node('ShaderNodeVectorMath', operation='LENGTH')
+        b.link(to_rail.outputs["Vector"], dist.inputs[0])
+        rail0 = b.node('GeometryNodeSampleCurve', mode='FACTOR', use_all_curves=True)
+        b.link(rail, rail0.inputs["Curves"])
+        path0 = b.node('GeometryNodeSampleCurve', mode='FACTOR', use_all_curves=True)
+        b.link(_object_curve(b, "Path"), path0.inputs["Curves"])
+        d0 = b.node('ShaderNodeVectorMath', operation='DISTANCE')
+        b.link(rail0.outputs["Position"], d0.inputs[0])
+        b.link(path0.outputs["Position"], d0.inputs[1])
+        ratio = b.math('DIVIDE', dist.outputs["Value"], b.math('MAXIMUM', d0.outputs["Value"], 1e-6))
+        use_scale = b.node('FunctionNodeBooleanMath', operation='AND')
+        b.link(has_rail.outputs["Result"], use_scale.inputs[0])
+        b.link(b.i("Rail Scale"), use_scale.inputs[1])
+        rail_factor = b.node('GeometryNodeSwitch', input_type='FLOAT')
+        b.link(use_scale.outputs[0], rail_factor.inputs["Switch"])
+        rail_factor.inputs["False"].default_value = 1.0
+        b.link(ratio, rail_factor.inputs["True"])
+        scale = b.math('MULTIPLY', radius.outputs["Result"], rail_factor.outputs[0])
+
         set_r = b.node('GeometryNodeSetCurveRadius')
         b.link(_object_curve(b, "Path"), set_r.inputs["Curve"])
-        b.link(radius.outputs["Result"], set_r.inputs["Radius"])
+        b.link(scale, set_r.inputs["Radius"])
         set_t = b.node('GeometryNodeSetCurveTilt')
         b.link(set_r.outputs[0], set_t.inputs["Curve"])
         b.link(b.math('MULTIPLY', param.outputs["Factor"], b.i("Rotation")), set_t.inputs["Tilt"])
+        set_n = b.node('GeometryNodeSetCurveNormal')
+        set_n.inputs["Mode"].default_value = 'FREE'
+        b.link(set_t.outputs[0], set_n.inputs["Curve"])
+        b.link(to_rail.outputs["Vector"], set_n.inputs["Normal"])
+        path = b.node('GeometryNodeSwitch', input_type='GEOMETRY')
+        b.link(has_rail.outputs["Result"], path.inputs["Switch"])
+        b.link(set_t.outputs[0], path.inputs["False"])
+        b.link(set_n.outputs[0], path.inputs["True"])
         c2m = b.node('GeometryNodeCurveToMesh')
-        b.link(set_t.outputs[0], c2m.inputs["Curve"])
-        b.link(radius.outputs["Result"], c2m.inputs["Scale"])  # 5.x: scale is an input
+        b.link(path.outputs[0], c2m.inputs["Curve"])
+        b.link(scale, c2m.inputs["Scale"])  # 5.x: scale is an input
         b.link(_object_curve(b, "Profile"), c2m.inputs["Profile Curve"])
         b.link(b.i("Caps"), c2m.inputs["Fill Caps"])
         return c2m.outputs["Mesh"]
@@ -470,6 +515,9 @@ class C4D_OT_add_spline_generator(bpy.types.Operator):
             children = [profile, path]
             set_input(mod, "Profile", profile)
             set_input(mod, "Path", path)
+            if len(splines) >= 3:  # C4D: third child = rail
+                children.append(splines[2])
+                set_input(mod, "Rail", splines[2])
         else:  # Loft
             if len(splines) < 2:
                 splines = [_new_spline(context, "Circle", (0.0, 0.0, z), Radius=r)

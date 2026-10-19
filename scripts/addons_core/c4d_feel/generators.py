@@ -167,8 +167,9 @@ def _is_child_material(ob):
     return ob.type in CHILD_TYPES and effector_modifier(ob) is None and ob.get(DEFORMER_TAG) is None
 
 
-def _sync(scene):
+def sync_children(scene):
     """Children collection == direct children in the Object Manager, for every generator."""
+    owners = {}
     for gen in bpy.data.objects:
         m = _children_modifier(gen)
         if m is None:
@@ -176,6 +177,17 @@ def _sync(scene):
         coll = get_input(m, "Children")
         if coll is None:
             continue
+        if coll.name in owners:
+            # A duplicated generator shares its original's collection: give it its own.
+            own = bpy.data.collections.new(coll.name)
+            scene.collection.children.link(own)
+            for c in list(coll.objects):
+                if c.parent == gen:
+                    coll.objects.unlink(c)
+                    own.objects.link(c)
+            set_input(m, "Children", own)
+            coll = own
+        owners[coll.name] = gen
         wanted = [c for c in gen.children if _is_child_material(c)]
         for c in wanted:
             if c.name not in coll.objects:
@@ -204,7 +216,7 @@ def _on_depsgraph(scene, depsgraph):
         return
     _busy = True
     try:
-        _sync(scene)
+        sync_children(scene)
     except (ReferenceError, RuntimeError):
         pass
     finally:
