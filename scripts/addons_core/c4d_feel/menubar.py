@@ -133,16 +133,18 @@ class C4D_MT_main_mograph(bpy.types.Menu):
     bl_label = "MoGraph"
 
     def draw(self, context):
+        from .cloner import MODES, EFFECTOR_KINDS, EFFECTOR_ICONS
         l = self.layout
-        for mode in ("Linear", "Radial", "Grid"):
+        for mode in MODES:
             l.operator("c4d.add_cloner", text=f"Cloner ({mode})", icon='MOD_ARRAY').mode = mode
         l.separator()
-        l.operator("c4d.add_plain_effector", text="Plain Effector (link to selected Cloner)", icon='SPHERE')
+        for kind in EFFECTOR_KINDS:
+            l.operator("c4d.add_effector", text=f"{kind} Effector", icon=EFFECTOR_ICONS[kind]).kind = kind
         l.separator()
         l.operator("c4d.add_modifier", text="Array (Modifier)", icon='MOD_ARRAY').kind = 'ARRAY'
         l.operator("object.duplicates_make_real", text="Make Clones Editable")
         l.separator()
-        l.label(text="Random effector: Cloner > Random Position / Rotation / Scale", icon='INFO')
+        l.label(text="Effectors link to the selected Cloner; stack as many as you like", icon='INFO')
 
 
 class C4D_MT_main_animate(bpy.types.Menu):

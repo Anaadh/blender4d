@@ -43,7 +43,8 @@ The fork exists for the things Python can't do:
 - Parametric primitives: Cube (with fillet), Sphere, Cylinder (caps on/off), Cone, Plane, Torus, Pyramid. Editable until you press C.
 - Splines: Circle, Rectangle, Star, Arc, Helix, Text.
 - Extrude (with subdivision and cap fillet), Lathe, Sweep (scale and twist along the path) and Loft, all working off their child splines.
-- Cloner (linear, radial, grid) with a random effector and a Plain effector you can move around.
+- Cloner (linear, radial, grid, object) with effectors that stack like C4D's: Plain, Random, Step, each with infinite, spherical, box or linear falloff that follows the effector's own transform. Drag an effector in and out of a Cloner's list in the Attribute Manager.
+- Subdivision Surface, Symmetry, Connect and Boolean as generators that work off their children, with editor and render subdivision levels. Drag an object under one in the Object Manager and it joins; drag it out and it leaves. C bakes a generator and folds in its children; on a Cloner it leaves a Null with the clones as real objects.
 - Deformers as child objects. Bend, Twist, Taper, Squash & Stretch, Wave. Move one under a different object and the effect follows.
 - Tags: Phong, Material, Target, Look at Camera, Align to Spline, Protection, Display, Compositing.
 - Look through a camera and navigating moves the camera, like in C4D.
@@ -54,7 +55,7 @@ Being honest about it:
 
 - **No .c4d files.** Blender can't open them. Export FBX, Alembic or USD from C4D.
 - **No Xpresso, Takes, or the full Fields system.** Geometry Nodes and drivers cover a lot of the same ground, but they aren't the same thing.
-- **The generators are Geometry Nodes under the hood.** They behave like C4D's in normal use, but they're not 1:1. Loft goes by child name order, Sweep has scale and twist but no rails, and the Cloner takes one Plain effector rather than a list.
+- **The generators are Geometry Nodes under the hood.** They behave like C4D's in normal use, but they're not 1:1. Loft goes by child name order, Sweep has scale and twist but no rails, and the effectors are Plain, Random and Step with simple falloffs rather than the full Fields system.
 - **Some C4D keys replace Blender ones in the viewport.** G steps frames instead of grabbing (E moves), H frames instead of hiding (use Alt+H or the dots), X/Y/Z lock axes instead of deleting (use Backspace). Turn the C4D keymap off if that bugs you.
 - **No vertical manager tabs** down the right edge. The tabs sit in the manager headers instead.
 - **It doesn't look pixel perfect.** Blender draws its own widgets and fonts, so it's close, not identical. The icons are my own, not Maxon's.

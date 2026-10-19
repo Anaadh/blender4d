@@ -68,8 +68,14 @@ class C4D_OT_make_editable(bpy.types.Operator):
 
     def execute(self, context):
         from .splines import kind_of
-        splines = [o for o in context.selected_objects if (kind_of(o) or ("", ""))[0] == 'spline']
-        others = [o for o in context.selected_objects if o not in splines]
+        from .cloner import cloner_modifier
+        from .generators import consumed_children
+        selected = list(context.selected_objects)
+        # C4D folds a generator's children into the result.
+        doomed = consumed_children(selected)
+        splines = [o for o in selected if (kind_of(o) or ("", ""))[0] == 'spline']
+        cloners = [o for o in selected if cloner_modifier(o) is not None]
+        others = [o for o in selected if o not in splines and o not in cloners]
         # Parametric splines become editable curves, everything else a mesh.
         for target, objs in (('CURVE', splines), ('MESH', others)):
             if not objs:
@@ -78,6 +84,24 @@ class C4D_OT_make_editable(bpy.types.Operator):
                 o.select_set(o in objs)
             context.view_layer.objects.active = objs[0]
             bpy.ops.object.convert(target=target)
+        # A Cloner becomes a Null with the clones as real children, like C4D.
+        for c in cloners:
+            for o in context.selected_objects:
+                o.select_set(o is c)
+            context.view_layer.objects.active = c
+            bpy.ops.object.duplicates_make_real(use_base_parent=True, use_hierarchy=True)
+            c.modifiers.remove(cloner_modifier(c))
+        for o in doomed:
+            colls = list(o.users_collection)
+            bpy.data.objects.remove(o)
+            for coll in colls:
+                if not coll.objects and not coll.children and coll != context.scene.collection:
+                    bpy.data.collections.remove(coll)
+        for o in selected:
+            try:
+                o.select_set(True)
+            except ReferenceError:
+                pass
         return {'FINISHED'}
 
 

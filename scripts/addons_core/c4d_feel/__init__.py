@@ -14,9 +14,9 @@ bl_info = {
 
 import bpy
 
-from . import icons, coord, ops, chords, menus, menubar, cloner, deformers, primitives, splines, tags, camera, nodes, om, matmanager, theme, layout, ui, managers, keymap
+from . import icons, coord, ops, chords, menus, menubar, cloner, generators, deformers, primitives, splines, tags, camera, nodes, om, matmanager, theme, layout, ui, managers, keymap
 
-_modules = (coord, ops, chords, menus, menubar, cloner, deformers, primitives, splines, tags, camera, nodes, om, matmanager, theme, layout, ui, managers)
+_modules = (coord, ops, chords, menus, menubar, cloner, generators, deformers, primitives, splines, tags, camera, nodes, om, matmanager, theme, layout, ui, managers)
 
 
 def _toggle_keymap(self, _context):
@@ -57,6 +57,7 @@ def register():
     coord.register()
     om.register()
     deformers.register()
+    generators.register()
     tags.register()
     camera.register()
     nodes.register()
@@ -74,6 +75,7 @@ def unregister():
     nodes.unregister()
     camera.unregister()
     tags.unregister()
+    generators.unregister()
     deformers.unregister()
     om.unregister()
     coord.unregister()

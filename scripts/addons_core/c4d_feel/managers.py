@@ -448,10 +448,16 @@ def _type_label(ob):
     from .primitives import primitive_name
     from .splines import kind_of
     from .deformers import KINDS as DEFORMERS
-    prim = (primitive_name(ob) or (kind_of(ob) or (None, None))[1]
+    from .generators import generator_name
+    from .cloner import cloner_modifier, effector_kind
+    prim = (primitive_name(ob) or (kind_of(ob) or (None, None))[1] or generator_name(ob)
             or (DEFORMERS[ob["c4d_deformer"]][0] if ob.get("c4d_deformer") in DEFORMERS else None))
     if prim:
         return prim
+    if cloner_modifier(ob) is not None:
+        return "Cloner"
+    if effector_kind(ob):
+        return effector_kind(ob) + " Effector"
     return {'MESH': "Polygon", 'EMPTY': "Null", 'CURVE': "Spline", 'LIGHT': "Light",
             'CAMERA': "Camera", 'FONT': "Text", 'ARMATURE': "Joint"}.get(ob.type, ob.type.title())
 
@@ -513,7 +519,10 @@ def _draw_object(col, context, ob):
     elif ob.type == 'MESH':
         from .primitives import primitive_name, draw_attributes, PREFIX
         from .splines import kind_of
-        if primitive_name(ob) or kind_of(ob):
+        from .generators import generator_name
+        from .cloner import cloner_modifier, effector_modifier
+        if (primitive_name(ob) or kind_of(ob) or generator_name(ob)
+                or cloner_modifier(ob) is not None or effector_modifier(ob) is not None):
             draw_attributes(col, ob)
             col.separator()
             col.operator("c4d.make_editable", text="Make Editable (C)", icon='MESH_DATA')

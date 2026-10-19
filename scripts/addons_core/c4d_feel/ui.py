@@ -174,12 +174,18 @@ class C4D_MT_generators(bpy.types.Menu):
 
     def draw(self, context):
         from .splines import GEN_SPECS, GEN_ICONS
+        from .generators import SPECS as OBJECT_GENERATORS, ICONS as OBJECT_GENERATOR_ICONS
+        l = self.layout
+        for k in OBJECT_GENERATORS:
+            l.operator("c4d.add_generator", text=k, icon=OBJECT_GENERATOR_ICONS[k]).kind = k
+        l.separator()
         for k in GEN_SPECS:
-            self.layout.operator("c4d.add_spline_generator", text=k, icon=GEN_ICONS[k]).kind = k
-        self.layout.separator()
+            l.operator("c4d.add_spline_generator", text=k, icon=GEN_ICONS[k]).kind = k
+        l.separator()
+        l.label(text="As modifier on selection")
         for k in ('SUBSURF', 'MIRROR', 'BOOLEAN', 'BEVEL', 'SOLIDIFY', 'REMESH'):
             label, icon, _ = MODIFIERS[k]
-            self.layout.operator("c4d.add_modifier", text=label, icon=icon).kind = k
+            l.operator("c4d.add_modifier", text=label, icon=icon).kind = k
 
 
 class C4D_MT_array(bpy.types.Menu):
@@ -187,8 +193,12 @@ class C4D_MT_array(bpy.types.Menu):
     bl_label = "Array"
 
     def draw(self, context):
-        for mode in ("Linear", "Radial", "Grid"):
+        from .cloner import MODES, EFFECTOR_KINDS, EFFECTOR_ICONS
+        for mode in MODES:
             self.layout.operator("c4d.add_cloner", text=f"Cloner ({mode})", icon='MOD_ARRAY').mode = mode
+        self.layout.separator()
+        for kind in EFFECTOR_KINDS:
+            self.layout.operator("c4d.add_effector", text=f"{kind} Effector", icon=EFFECTOR_ICONS[kind]).kind = kind
         self.layout.separator()
         label, icon, _ = MODIFIERS['ARRAY']
         self.layout.operator("c4d.add_modifier", text=label, icon=icon).kind = 'ARRAY'
